@@ -1,0 +1,307 @@
+diff --git a/src/gfx.cpp b/src/gfx.cpp
+index 84cc5b47b..3312bb34a 100644
+--- a/src/gfx.cpp
++++ b/src/gfx.cpp
+@@ -30,6 +30,7 @@
+ #include "safeguards.h"
+ 
+ byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
++byte _wasdkeys;       ///< a = left, w = up, d = right, 8 = down
+ bool _fullscreen;
+ byte _support8bpp;
+ CursorVars _cursor;
+diff --git a/src/gfx_func.h b/src/gfx_func.h
+index 7a0c02c14..33fc5d8ee 100644
+--- a/src/gfx_func.h
++++ b/src/gfx_func.h
+@@ -51,6 +51,7 @@ void GameLoop();
+ void CreateConsole();
+ 
+ extern byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
++extern byte _wasdkeys;
+ extern bool _fullscreen;
+ extern byte _support8bpp;
+ extern CursorVars _cursor;
+diff --git a/src/video/allegro_v.cpp b/src/video/allegro_v.cpp
+index 01628f99c..9f495ee3d 100644
+--- a/src/video/allegro_v.cpp
++++ b/src/video/allegro_v.cpp
+@@ -521,6 +521,12 @@ void VideoDriver_Allegro::MainLoop()
+ 				(key[KEY_UP]    ? 2 : 0) |
+ 				(key[KEY_RIGHT] ? 4 : 0) |
+ 				(key[KEY_DOWN]  ? 8 : 0);
++			_wasdkeys =
++				(key[KEY_A] ? 1 : 0) |
++				(key[KEY_W] ? 2 : 0) |
++				(key[KEY_D] ? 4 : 0) |
++				(key[KEY_S] ? 8 : 0);
++
+ 
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+diff --git a/src/video/cocoa/event.mm b/src/video/cocoa/event.mm
+index c8d10717e..317d056a0 100644
+--- a/src/video/cocoa/event.mm
++++ b/src/video/cocoa/event.mm
+@@ -281,7 +281,10 @@ static bool QZ_KeyEvent(unsigned short keycode, unsigned short unicode, BOOL dow
+ 		case QZ_DOWN:  SB(_dirkeys, 3, 1, down); break;
+ 		case QZ_LEFT:  SB(_dirkeys, 0, 1, down); break;
+ 		case QZ_RIGHT: SB(_dirkeys, 2, 1, down); break;
+-
++		case QZ_w: SB(_wasdkeys, 1, 1, down); break;
++		case QZ_s: SB(_wasdkeys, 3, 1, down); break;
++		case QZ_a: SB(_wasdkeys, 0, 1, down); break;
++		case QZ_d: SB(_wasdkeys, 2, 1, down); break;
+ 		case QZ_TAB: _tab_is_down = down; break;
+ 
+ 		case QZ_RETURN:
+diff --git a/src/video/sdl_v.cpp b/src/video/sdl_v.cpp
+index 3668f8602..d745fbfb3 100644
+--- a/src/video/sdl_v.cpp
++++ b/src/video/sdl_v.cpp
+@@ -744,6 +744,18 @@ void VideoDriver_SDL::MainLoop()
+ 				(keys[SDLK_RIGHT] ? 4 : 0) |
+ 				(keys[SDLK_DOWN]  ? 8 : 0);
+ #endif
++			_wasdkeys =
++#if SDL_VERSION_ATLEAST(1, 3, 0)
++				(keys[SDL_SCANCODE_A] ? 1 : 0) |
++				(keys[SDL_SCANCODE_W] ? 2 : 0) |
++				(keys[SDL_SCANCODE_D] ? 4 : 0) |
++				(keys[SDL_SCANCODE_S] ? 8 : 0);
++#else
++				(keys[SDLK_A] ? 1 : 0) |
++				(keys[SDLK_W] ? 2 : 0) |
++				(keys[SDLK_D] ? 4 : 0) |
++				(keys[SDLK_S] ? 8 : 0);
++#endif
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+ 			/* The gameloop is the part that can run asynchronously. The rest
+diff --git a/src/video/win32_v.cpp b/src/video/win32_v.cpp
+index e536ae8e5..5e34ed695 100644
+--- a/src/video/win32_v.cpp
++++ b/src/video/win32_v.cpp
+@@ -1260,8 +1260,15 @@ void VideoDriver_Win32::MainLoop()
+ 					(GetAsyncKeyState(VK_UP) < 0 ? 2 : 0) +
+ 					(GetAsyncKeyState(VK_RIGHT) < 0 ? 4 : 0) +
+ 					(GetAsyncKeyState(VK_DOWN) < 0 ? 8 : 0);
++				_wasdkeys =
++					(GetAsyncKeyState(VK_A) < 0 ? 1 : 0) +
++					(GetAsyncKeyState(VK_W) < 0 ? 2 : 0) +
++					(GetAsyncKeyState(VK_D) < 0 ? 4 : 0) +
++					(GetAsyncKeyState(VK_S) < 0 ? 8 : 0);
++
+ 			} else {
+ 				_dirkeys = 0;
++				_wasdkeys = 0;
+ 			}
+ 
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+diff --git a/src/window.cpp b/src/window.cpp
+index d906566ae..d085adeaf 100644
+--- a/src/window.cpp
++++ b/src/window.cpp
+@@ -2804,6 +2804,10 @@ static void HandleKeyScrolling()
+ 		int factor = _shift_pressed ? 50 : 10;
+ 		ScrollMainViewport(scrollamt[_dirkeys][0] * factor, scrollamt[_dirkeys][1] * factor);
+ 	}
++	if (_wasdkeys && !EditBoxInGlobalFocus()) {
++		int factor = _shift_pressed ? 50 : 10;
++		ScrollMainViewport(scrollamt[_wasdkeys][0] * factor, scrollamt[_wasdkeys][1] * factor);
++	}
+ }
+ 
+ static void MouseLoop(MouseClick click, int mousewheel)
+diff --git a/src/gfx.cpp b/src/gfx.cpp
+index 84cc5b47b..3312bb34a 100644
+--- a/src/gfx.cpp
++++ b/src/gfx.cpp
+@@ -30,6 +30,7 @@
+ #include "safeguards.h"
+ 
+ byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
++byte _wasdkeys;       ///< a = left, w = up, d = right, 8 = down
+ bool _fullscreen;
+ byte _support8bpp;
+ CursorVars _cursor;
+diff --git a/src/gfx_func.h b/src/gfx_func.h
+index 7a0c02c14..33fc5d8ee 100644
+--- a/src/gfx_func.h
++++ b/src/gfx_func.h
+@@ -51,6 +51,7 @@ void GameLoop();
+ void CreateConsole();
+ 
+ extern byte _dirkeys;        ///< 1 = left, 2 = up, 4 = right, 8 = down
++extern byte _wasdkeys;
+ extern bool _fullscreen;
+ extern byte _support8bpp;
+ extern CursorVars _cursor;
+diff --git a/src/lang/english.txt b/src/lang/english.txt
+index dc86d29a1..7c6856f33 100644
+--- a/src/lang/english.txt
++++ b/src/lang/english.txt
+@@ -1434,6 +1434,9 @@ STR_CONFIG_SETTING_LEFT_MOUSE_BTN_SCROLLING_HELPTEXT            :Enable scrollin
+ STR_CONFIG_SETTING_RIGHT_MOUSE_WND_CLOSE                        :Close window on right-click: {STRING2}
+ STR_CONFIG_SETTING_RIGHT_MOUSE_WND_CLOSE_HELPTEXT               :Closes a window by right-clicking inside it. Disables the tooltip on right-click!
+ 
++STR_CONFIG_SETTING_WASDKEYS                                     :WASD Keys
++STR_CONFIG_SETTING_WASDKEYS_HELPTEXT                            :Using WASD Keys instead of arrow keys
++
+ STR_CONFIG_SETTING_AUTOSAVE                                     :Autosave: {STRING2}
+ STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Select interval between automatic game saves
+ 
+diff --git a/src/lang/english_US.txt b/src/lang/english_US.txt
+index cbb0437b6..d65f75035 100644
+--- a/src/lang/english_US.txt
++++ b/src/lang/english_US.txt
+@@ -1375,6 +1375,9 @@ STR_CONFIG_SETTING_LEFT_MOUSE_BTN_SCROLLING_HELPTEXT            :Enable scrollin
+ STR_CONFIG_SETTING_RIGHT_MOUSE_WND_CLOSE                        :Close window on right-click: {STRING}
+ STR_CONFIG_SETTING_RIGHT_MOUSE_WND_CLOSE_HELPTEXT               :Closes a window by right-clicking inside it. Disables the tooltip on right-click!
+ 
++STR_CONFIG_SETTING_WASDKEYS                                     :WASD Keys
++STR_CONFIG_SETTING_WASDKEYS_HELPTEXT                            :Using WASD Keys instead of arrow keys
++
+ STR_CONFIG_SETTING_AUTOSAVE                                     :Autosave: {STRING}
+ STR_CONFIG_SETTING_AUTOSAVE_HELPTEXT                            :Select interval between automatic game saves
+ 
+diff --git a/src/settings_gui.cpp b/src/settings_gui.cpp
+index c0463b4cd..23e73c8de 100644
+--- a/src/settings_gui.cpp
++++ b/src/settings_gui.cpp
+@@ -1585,6 +1585,7 @@ static SettingsContainer &GetSettingsTree()
+ 				wallclock->Add(new SettingEntry("gui.clock_offset"));
+ 			}
+ 
++			interface->Add(new SettingEntry("gui.wasdkeys"));
+ 			interface->Add(new SettingEntry("gui.autosave"));
+ 			interface->Add(new SettingEntry("gui.toolbar_pos"));
+ 			interface->Add(new SettingEntry("gui.statusbar_pos"));
+diff --git a/src/settings_type.h b/src/settings_type.h
+index ea48c8e45..63d934b64 100644
+--- a/src/settings_type.h
++++ b/src/settings_type.h
+@@ -198,6 +198,8 @@ struct GUISettings {
+ 	bool   newgrf_show_old_versions;         ///< whether to show old versions in the NewGRF list
+ 	uint8  newgrf_default_palette;           ///< default palette to use for NewGRFs without action 14 palette information
+ 
++	bool   wasdkeys;
++
+ 	/**
+ 	 * Returns true when the user has sufficient privileges to edit newgrfs on a running game
+ 	 * @return whether the user has sufficient privileges to edit newgrfs in an existing game
+diff --git a/src/table/settings.ini b/src/table/settings.ini
+index a3f317447..0432e1675 100644
+--- a/src/table/settings.ini
++++ b/src/table/settings.ini
+@@ -3083,6 +3083,14 @@ patxname = ""safer_crossings.vehicle.safer_crossings""
+ 
+ ;***************************************************************************
+ ; Unsaved setting variables.
++[SDTC_BOOL]
++var      = gui.wasdkeys
++flags    = SLF_NOT_IN_SAVE | SLF_NO_NETWORK_SYNC
++def      = true
++str      = STR_CONFIG_SETTING_WASDKEYS
++strhelp  = STR_CONFIG_SETTING_WASDKEYS_HELPTEXT
++cat      = SC_BASIC
++
+ 
+ [SDTC_OMANY]
+ var      = gui.autosave
+diff --git a/src/video/allegro_v.cpp b/src/video/allegro_v.cpp
+index 01628f99c..9f495ee3d 100644
+--- a/src/video/allegro_v.cpp
++++ b/src/video/allegro_v.cpp
+@@ -521,6 +521,12 @@ void VideoDriver_Allegro::MainLoop()
+ 				(key[KEY_UP]    ? 2 : 0) |
+ 				(key[KEY_RIGHT] ? 4 : 0) |
+ 				(key[KEY_DOWN]  ? 8 : 0);
++			_wasdkeys =
++				(key[KEY_A] ? 1 : 0) |
++				(key[KEY_W] ? 2 : 0) |
++				(key[KEY_D] ? 4 : 0) |
++				(key[KEY_S] ? 8 : 0);
++
+ 
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+diff --git a/src/video/cocoa/event.mm b/src/video/cocoa/event.mm
+index c8d10717e..317d056a0 100644
+--- a/src/video/cocoa/event.mm
++++ b/src/video/cocoa/event.mm
+@@ -281,7 +281,10 @@ static bool QZ_KeyEvent(unsigned short keycode, unsigned short unicode, BOOL dow
+ 		case QZ_DOWN:  SB(_dirkeys, 3, 1, down); break;
+ 		case QZ_LEFT:  SB(_dirkeys, 0, 1, down); break;
+ 		case QZ_RIGHT: SB(_dirkeys, 2, 1, down); break;
+-
++		case QZ_w: SB(_wasdkeys, 1, 1, down); break;
++		case QZ_s: SB(_wasdkeys, 3, 1, down); break;
++		case QZ_a: SB(_wasdkeys, 0, 1, down); break;
++		case QZ_d: SB(_wasdkeys, 2, 1, down); break;
+ 		case QZ_TAB: _tab_is_down = down; break;
+ 
+ 		case QZ_RETURN:
+diff --git a/src/video/sdl_v.cpp b/src/video/sdl_v.cpp
+index 3668f8602..d745fbfb3 100644
+--- a/src/video/sdl_v.cpp
++++ b/src/video/sdl_v.cpp
+@@ -744,6 +744,18 @@ void VideoDriver_SDL::MainLoop()
+ 				(keys[SDLK_RIGHT] ? 4 : 0) |
+ 				(keys[SDLK_DOWN]  ? 8 : 0);
+ #endif
++			_wasdkeys =
++#if SDL_VERSION_ATLEAST(1, 3, 0)
++				(keys[SDL_SCANCODE_A] ? 1 : 0) |
++				(keys[SDL_SCANCODE_W] ? 2 : 0) |
++				(keys[SDL_SCANCODE_D] ? 4 : 0) |
++				(keys[SDL_SCANCODE_S] ? 8 : 0);
++#else
++				(keys[SDLK_A] ? 1 : 0) |
++				(keys[SDLK_W] ? 2 : 0) |
++				(keys[SDLK_D] ? 4 : 0) |
++				(keys[SDLK_S] ? 8 : 0);
++#endif
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+ 			/* The gameloop is the part that can run asynchronously. The rest
+diff --git a/src/video/win32_v.cpp b/src/video/win32_v.cpp
+index e536ae8e5..5e34ed695 100644
+--- a/src/video/win32_v.cpp
++++ b/src/video/win32_v.cpp
+@@ -1260,8 +1260,15 @@ void VideoDriver_Win32::MainLoop()
+ 					(GetAsyncKeyState(VK_UP) < 0 ? 2 : 0) +
+ 					(GetAsyncKeyState(VK_RIGHT) < 0 ? 4 : 0) +
+ 					(GetAsyncKeyState(VK_DOWN) < 0 ? 8 : 0);
++				_wasdkeys =
++					(GetAsyncKeyState(VK_A) < 0 ? 1 : 0) +
++					(GetAsyncKeyState(VK_W) < 0 ? 2 : 0) +
++					(GetAsyncKeyState(VK_D) < 0 ? 4 : 0) +
++					(GetAsyncKeyState(VK_S) < 0 ? 8 : 0);
++
+ 			} else {
+ 				_dirkeys = 0;
++				_wasdkeys = 0;
+ 			}
+ 
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+diff --git a/src/window.cpp b/src/window.cpp
+index d906566ae..aebe82eb1 100644
+--- a/src/window.cpp
++++ b/src/window.cpp
+@@ -2800,10 +2800,14 @@ static void HandleKeyScrolling()
+ 	 * Check that any of the dirkeys is pressed and that the focused window
+ 	 * doesn't have an edit-box as focused widget.
+ 	 */
+-	if (_dirkeys && !EditBoxInGlobalFocus()) {
++	if (!_settings_client.gui.wasdkeys && _dirkeys && !EditBoxInGlobalFocus()) {
+ 		int factor = _shift_pressed ? 50 : 10;
+ 		ScrollMainViewport(scrollamt[_dirkeys][0] * factor, scrollamt[_dirkeys][1] * factor);
+ 	}
++	if (_settings_client.gui.wasdkeys && _wasdkeys && !EditBoxInGlobalFocus()) {
++		int factor = _shift_pressed ? 50 : 10;
++		ScrollMainViewport(scrollamt[_wasdkeys][0] * factor, scrollamt[_wasdkeys][1] * factor);
++	}
+ }
+ 
+ static void MouseLoop(MouseClick click, int mousewheel)

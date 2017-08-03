@@ -1,0 +1,91 @@
+From 49c348df0c4b714962aed4a428cf1ef415c1c121 Mon Sep 17 00:00:00 2001
+From: zzoru <zzoru007@gmail.com>
+Date: Thu, 3 Aug 2017 17:23:13 +0900
+Subject: [PATCH] Add grow town with road tram
+
+---
+ src/road.cpp     |  2 +-
+ src/stdafx.h     |  2 +-
+ src/town_cmd.cpp | 25 +++++++++++++++++++++----
+ 3 files changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/src/road.cpp b/src/road.cpp
+index f51597538..82272bedf 100644
+--- a/src/road.cpp
++++ b/src/road.cpp
+@@ -112,7 +112,7 @@ bool HasRoadTypesAvail(const CompanyID company, const RoadTypes rts)
+ 	RoadTypes avail_roadtypes;
+ 
+ 	if (company == OWNER_DEITY || company == OWNER_TOWN || _game_mode == GM_EDITOR || _generating_world) {
+-		avail_roadtypes = ROADTYPES_ROAD;
++		avail_roadtypes = ROADTYPES_ROAD | ROADTYPES_TRAM;
+ 	} else {
+ 		Company *c = Company::GetIfValid(company);
+ 		if (c == NULL) return false;
+diff --git a/src/stdafx.h b/src/stdafx.h
+index 74f487972..a4456e049 100644
+--- a/src/stdafx.h
++++ b/src/stdafx.h
+@@ -321,7 +321,7 @@
+ #if defined(_MSC_VER) || defined(__MINGW32__)
+ 	#define OTTD_PRINTF64 "%I64d"
+ 	#define OTTD_PRINTFHEX64 "%I64x"
+-	#define PRINTF_SIZE "%Iu"
++	#define PRINTF_SIZE "%u"
+ #else
+ 	#define OTTD_PRINTF64 "%lld"
+ 	#define OTTD_PRINTFHEX64 "%llx"
+diff --git a/src/town_cmd.cpp b/src/town_cmd.cpp
+index ccc4382be..427af5fca 100644
+--- a/src/town_cmd.cpp
++++ b/src/town_cmd.cpp
+@@ -46,6 +46,7 @@
+ #include "ai/ai.hpp"
+ #include "game/game.hpp"
+ #include "zoom_func.h"
++#include "engine_base.h" /* Checking tram bits */
+ 
+ #include "table/strings.h"
+ #include "table/town_land.h"
+@@ -1204,10 +1205,17 @@ static bool GrowTownWithExtraHouse(Town *t, TileIndex tile)
+  */
+ static bool GrowTownWithRoad(const Town *t, TileIndex tile, RoadBits rcmd)
+ {
+-	if (DoCommand(tile, rcmd, t->index, DC_EXEC | DC_AUTO | DC_NO_WATER, CMD_BUILD_ROAD).Succeeded()) {
++	if (DoCommand(tile, rcmd, t->index, DC_EXEC | DC_AUTO | DC_NO_WATER, CMD_BUILD_ROAD).Succeeded()) {		
++		Engine *e;
++		FOR_ALL_ENGINES_OF_TYPE(e, VEH_ROAD) {			
++			if (HasBit(e->info.misc_flags, EF_ROAD_TRAM)) {
++				DoCommand(tile, rcmd | ROADTYPE_TRAM << 4, t->index, DC_EXEC | DC_AUTO | DC_NO_WATER, CMD_BUILD_ROAD).Succeeded();
++				break;				
++			}		
++		}
+ 		_grow_town_result = GROWTH_SUCCEED;
+-		return true;
+-	}
++		return true;	
++	}	
+ 	return false;
+ }
+ 
+@@ -1268,7 +1276,16 @@ static bool GrowTownWithBridge(const Town *t, const TileIndex tile, const DiagDi
+ 
+ 		/* Can we actually build the bridge? */
+ 		if (DoCommand(tile, bridge_tile, bridge_type | ROADTYPES_ROAD << 8 | TRANSPORT_ROAD << 15, CommandFlagsToDCFlags(GetCommandFlags(CMD_BUILD_BRIDGE)), CMD_BUILD_BRIDGE).Succeeded()) {
+-			DoCommand(tile, bridge_tile, bridge_type | ROADTYPES_ROAD << 8 | TRANSPORT_ROAD << 15, DC_EXEC | CommandFlagsToDCFlags(GetCommandFlags(CMD_BUILD_BRIDGE)), CMD_BUILD_BRIDGE);
++			DoCommand(tile, bridge_tile, bridge_type | ROADTYPES_ROAD << 8 | TRANSPORT_ROAD << 15, DC_EXEC | CommandFlagsToDCFlags(GetCommandFlags(CMD_BUILD_BRIDGE)), CMD_BUILD_BRIDGE);			
++			Engine *e;
++			FOR_ALL_ENGINES_OF_TYPE(e, VEH_ROAD) {			
++				if (HasBit(e->info.misc_flags, EF_ROAD_TRAM)) {
++					if(DoCommand(tile, bridge_tile, bridge_type | ROADTYPES_TRAM << 8 | TRANSPORT_ROAD << 15,  CommandFlagsToDCFlags(GetCommandFlags(CMD_BUILD_BRIDGE)), CMD_BUILD_BRIDGE).Succeeded()){
++						DoCommand(tile, bridge_tile, bridge_type | ROADTYPES_TRAM << 8 | TRANSPORT_ROAD << 15,  DC_EXEC | CommandFlagsToDCFlags(GetCommandFlags(CMD_BUILD_BRIDGE)), CMD_BUILD_BRIDGE);
++					}
++					break;					
++				}
++			}			
+ 			_grow_town_result = GROWTH_SUCCEED;
+ 			return true;
+ 		}
+-- 
+2.12.2.windows.2
+
