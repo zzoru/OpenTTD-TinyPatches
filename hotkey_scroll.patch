@@ -1,0 +1,543 @@
+diff --git a/src/hotkeys.cpp b/src/hotkeys.cpp
+index afd7b1ca2..8b0228b21 100644
+--- a/src/hotkeys.cpp
++++ b/src/hotkeys.cpp
+@@ -63,6 +63,10 @@ static const KeycodeNames _keycode_to_name[] = {
+ 	{"-", WKC_MINUS},
+ 	{"PAGE_UP", WKC_PAGEUP},
+ 	{"PAGE_DOWN", WKC_PAGEDOWN},
++	{"UP", WKC_UP},
++	{"DOWN", WKC_DOWN},
++	{"LEFT", WKC_LEFT},
++	{"RIGHT", WKC_RIGHT}
+ };
+ 
+ /**
+@@ -309,6 +313,16 @@ int HotkeyList::CheckMatch(uint16 keycode, bool global_only) const
+ 	return -1;
+ }
+ 
++const SmallVector<uint16, 1> *HotkeyList::GetKeycodesByNum(int num)
++{
++	for (const Hotkey *list = this->items; list->name != NULL; ++list) {
++		if (list->num == num){
++			return &list->keycodes;
++		}
++	}
++	return NULL;
++}
++
+ 
+ static void SaveLoadHotkeys(bool save)
+ {
+diff --git a/src/hotkeys.h b/src/hotkeys.h
+index 25a489b3f..d55545f5e 100644
+--- a/src/hotkeys.h
++++ b/src/hotkeys.h
+@@ -49,6 +49,7 @@ struct HotkeyList {
+ 	void Save(IniFile *ini) const;
+ 
+ 	int CheckMatch(uint16 keycode, bool global_only = false) const;
++	const SmallVector<uint16, 1> *GetKeycodesByNum(int num);
+ 
+ 	GlobalHotkeyHandlerFunc global_hotkey_handler;
+ private:
+diff --git a/src/stdafx.h b/src/stdafx.h
+index 74f487972..a4456e049 100644
+--- a/src/stdafx.h
++++ b/src/stdafx.h
+@@ -321,7 +321,7 @@
+ #if defined(_MSC_VER) || defined(__MINGW32__)
+ 	#define OTTD_PRINTF64 "%I64d"
+ 	#define OTTD_PRINTFHEX64 "%I64x"
+-	#define PRINTF_SIZE "%Iu"
++	#define PRINTF_SIZE "%u"
+ #else
+ 	#define OTTD_PRINTF64 "%lld"
+ 	#define OTTD_PRINTFHEX64 "%llx"
+diff --git a/src/video/allegro_v.cpp b/src/video/allegro_v.cpp
+index 01628f99c..912e94d00 100644
+--- a/src/video/allegro_v.cpp
++++ b/src/video/allegro_v.cpp
+@@ -333,6 +333,19 @@ static uint32 ConvertAllegroKeyIntoMy(WChar *character)
+ 	return key;
+ }
+ 
++static uint16 ConvertMyKeytoAllegroKey(byte key){
++	const VkMapping *map;
++	uint16 sym = 0;
++
++	for (map = _vk_mapping; map != endof(_vk_mapping); ++map) {
++		if ((uint)(key - map->map_to) <= map->vk_count) {
++			sym = key - map->map_to + map->vk_from;
++			break;
++		}
++	}
++	return sym;
++}
++
+ static const uint LEFT_BUTTON  = 0;
+ static const uint RIGHT_BUTTON = 1;
+ 
+@@ -431,8 +444,8 @@ const char *VideoDriver_Allegro::Start(const char * const *parm)
+ 	install_keyboard();
+ 
+ #if defined _DEBUG
+-/* Allegro replaces SEGV/ABRT signals meaning that the debugger will never
+- * be triggered, so rereplace the signals and make the debugger useful. */
++	/* Allegro replaces SEGV/ABRT signals meaning that the debugger will never
++	 * be triggered, so rereplace the signals and make the debugger useful. */
+ 	signal(SIGABRT, NULL);
+ 	signal(SIGSEGV, NULL);
+ #endif
+@@ -475,6 +488,23 @@ static uint32 GetTime()
+ }
+ #endif
+ 
++enum {
++	SHK_SCROLL_UP,
++	SHK_SCROLL_DOWN,
++	SHK_SCROLL_LEFT,
++	SHK_SCROLL_RIGHT
++};
++
++static Hotkey scroll_hotkeys[] = {
++	Hotkey(WKC_UP, "scroll_up", SHK_SCROLL_UP),
++	Hotkey(WKC_DOWN, "scroll_down", SHK_SCROLL_DOWN),
++	Hotkey(WKC_LEFT, "scroll_left", SHK_SCROLL_LEFT),
++	Hotkey(WKC_RIGHT, "scroll_right", SHK_SCROLL_RIGHT),
++	HOTKEY_LIST_END
++};
++
++HotkeyList VideoDriver_Allegro::hotkeys("scroll", scroll_hotkeys);
++
+ 
+ void VideoDriver_Allegro::MainLoop()
+ {
+@@ -494,15 +524,15 @@ void VideoDriver_Allegro::MainLoop()
+ #if defined(_DEBUG)
+ 		if (_shift_pressed)
+ #else
+-		/* Speedup when pressing tab, except when using ALT+TAB
+-		 * to switch to another application */
+-		if (key[KEY_TAB] && (key_shifts & KB_ALT_FLAG) == 0)
++			/* Speedup when pressing tab, except when using ALT+TAB
++			 * to switch to another application */
++			if (key[KEY_TAB] && (key_shifts & KB_ALT_FLAG) == 0)
+ #endif
+-		{
+-			if (!_networking && _game_mode != GM_MENU) _fast_forward |= 2;
+-		} else if (_fast_forward & 2) {
+-			_fast_forward = 0;
+-		}
++			{
++				if (!_networking && _game_mode != GM_MENU) _fast_forward |= 2;
++			} else if (_fast_forward & 2) {
++				_fast_forward = 0;
++			}
+ 
+ 		cur_ticks = GetTime();
+ 		if (cur_ticks >= next_tick || (_fast_forward && !_pause_mode) || cur_ticks < prev_cur_ticks) {
+@@ -516,11 +546,44 @@ void VideoDriver_Allegro::MainLoop()
+ 			_shift_pressed = !!(key_shifts & KB_SHIFT_FLAG);
+ 
+ 			/* determine which directional keys are down */
+-			_dirkeys =
+-				(key[KEY_LEFT]  ? 1 : 0) |
+-				(key[KEY_UP]    ? 2 : 0) |
+-				(key[KEY_RIGHT] ? 4 : 0) |
+-				(key[KEY_DOWN]  ? 8 : 0);
++			const SmallVector<uint16, 1> *scroll_up_keycodes = VideoDriver_Allegro::hotkeys.GetKeycodesByNum(SHK_SCROLL_UP);
++			const SmallVector<uint16, 1> *scroll_down_keycodes = VideoDriver_Allegro::hotkeys.GetKeycodesByNum(SHK_SCROLL_DOWN);
++			const SmallVector<uint16, 1> *scroll_left_keycodes = VideoDriver_Allegro::hotkeys.GetKeycodesByNum(SHK_SCROLL_LEFT);
++			const SmallVector<uint16, 1> *scroll_right_keycodes = VideoDriver_Allegro::hotkeys.GetKeycodesByNum(SHK_SCROLL_RIGHT);
++
++			_dirkeys = 0;
++			if(scroll_left_keycodes != NULL){
++				for (uint i = 0; i < scroll_left_keycodes->Length(); i++){
++					if(key[ConvertMyKeytoAllegroKey(*scroll_left_keycodes->Get(i))]){
++						_dirkeys += 1;
++						break;
++					}
++				}
++			}
++			if(scroll_up_keycodes != NULL){
++				for (uint i = 0; i < scroll_up_keycodes->Length(); i++){
++					if(key[ConvertMyKeytoAllegroKey(*scroll_up_keycodes->Get(i))]){
++						_dirkeys += 2;
++						break;
++					}
++				}
++			}
++			if(scroll_right_keycodes != NULL){
++				for (uint i = 0; i < scroll_right_keycodes->Length(); i++){
++					if(key[ConvertMyKeytoAllegroKey(*scroll_right_keycodes->Get(i))]){
++						_dirkeys += 4;
++						break;
++					}
++				}
++			}
++			if(scroll_down_keycodes != NULL){
++				for (uint i = 0; i < scroll_down_keycodes->Length(); i++){
++					if(key[ConvertMyKeytoAllegroKey(*scroll_down_keycodes->Get(i))]){
++						_dirkeys += 8;
++						break;
++					}
++				}
++			}
+ 
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+diff --git a/src/video/allegro_v.h b/src/video/allegro_v.h
+index a770635da..dc1c89aec 100644
+--- a/src/video/allegro_v.h
++++ b/src/video/allegro_v.h
+@@ -13,6 +13,7 @@
+ #define VIDEO_ALLEGRO_H
+ 
+ #include "video_driver.hpp"
++#include "../hotkeys.h"
+ 
+ /** The allegro video driver. */
+ class VideoDriver_Allegro : public VideoDriver {
+@@ -34,6 +35,8 @@ public:
+ 	/* virtual */ bool ClaimMousePointer();
+ 
+ 	/* virtual */ const char *GetName() const { return "allegro"; }
++
++	static HotkeyList hotkeys;
+ };
+ 
+ /** Factory for the allegro video driver. */
+diff --git a/src/video/cocoa/event.mm b/src/video/cocoa/event.mm
+index c8d10717e..998682340 100644
+--- a/src/video/cocoa/event.mm
++++ b/src/video/cocoa/event.mm
+@@ -37,6 +37,7 @@
+ #include "../../core/math_func.hpp"
+ #include "../../texteff.hpp"
+ #include "../../window_func.h"
++#include "../../hotkeys.h"
+ 
+ #import <sys/time.h> /* gettimeofday */
+ 
+@@ -252,6 +253,22 @@ static const VkMapping _vk_mapping[] = {
+ 	AS(QZ_PERIOD,  WKC_PERIOD)
+ };
+ 
++enum {
++	SHK_SCROLL_UP,
++	SHK_SCROLL_DOWN,
++	SHK_SCROLL_LEFT,
++	SHK_SCROLL_RIGHT
++};
++
++static Hotkey scroll_hotkeys[] = {
++	Hotkey(WKC_UP, "scroll_up", SHK_SCROLL_UP),
++	Hotkey(WKC_DOWN, "scroll_down", SHK_SCROLL_DOWN),
++	Hotkey(WKC_LEFT, "scroll_left", SHK_SCROLL_LEFT),
++	Hotkey(WKC_RIGHT, "scroll_right", SHK_SCROLL_RIGHT),
++   HOTKEY_LIST_END
++};
++
++HotkeyList *hotkeys = new HotkeyList("scroll", scroll_hotkeys);
+ 
+ static uint32 QZ_MapKey(unsigned short sym)
+ {
+@@ -275,13 +292,16 @@ static uint32 QZ_MapKey(unsigned short sym)
+ static bool QZ_KeyEvent(unsigned short keycode, unsigned short unicode, BOOL down)
+ {
+ 	bool interpret_keys = true;
++	int hotkey = hotkeys->CheckMatch(QZ_MapKey(keycode));
+ 
+-	switch (keycode) {
+-		case QZ_UP:    SB(_dirkeys, 1, 1, down); break;
+-		case QZ_DOWN:  SB(_dirkeys, 3, 1, down); break;
+-		case QZ_LEFT:  SB(_dirkeys, 0, 1, down); break;
+-		case QZ_RIGHT: SB(_dirkeys, 2, 1, down); break;
++   	switch (hotkey) {
++      case SHK_SCROLL_UP:   SB(_dirkeys, 1, 1, down); break;
++      case SHK_SCROLL_DOWN: SB(_dirkeys, 3, 1, down); break;
++      case SHK_SCROLL_LEFT: SB(_dirkeys, 0, 1, down); break;
++      case SHK_SCROLL_RIGHT: SB(_dirkeys, 2, 1, down); break;
++   }
+ 
++	switch (keycode) {
+ 		case QZ_TAB: _tab_is_down = down; break;
+ 
+ 		case QZ_RETURN:
+diff --git a/src/video/sdl_v.cpp b/src/video/sdl_v.cpp
+index 3668f8602..4d18e4462 100644
+--- a/src/video/sdl_v.cpp
++++ b/src/video/sdl_v.cpp
+@@ -23,6 +23,8 @@
+ #include "../core/random_func.hpp"
+ #include "../core/math_func.hpp"
+ #include "../fileio_func.h"
++#include "../hotkeys.h"
++
+ #include "sdl_v.h"
+ #include <SDL.h>
+ 
+@@ -524,6 +526,19 @@ static uint ConvertSdlKeyIntoMy(SDL_keysym *sym, WChar *character)
+ 	return key;
+ }
+ 
++static uint16 ConvertMyKeytoSdlKey(byte key){
++	const VkMapping *map;
++	uint16 sym = 0;
++
++	for (map = _vk_mapping; map != endof(_vk_mapping); ++map) {
++		if ((uint)(key - map->map_to) <= map->vk_count) {
++			sym = key - map->map_to + map->vk_from;
++			break;
++		}
++	}
++	return sym;
++}
++
+ int VideoDriver_SDL::PollEvent()
+ {
+ 	SDL_Event ev;
+@@ -653,6 +668,23 @@ void VideoDriver_SDL::Stop()
+ 	SdlClose(SDL_INIT_VIDEO);
+ }
+ 
++enum {
++	SHK_SCROLL_UP,
++	SHK_SCROLL_DOWN,
++	SHK_SCROLL_LEFT,
++	SHK_SCROLL_RIGHT
++};
++
++static Hotkey scroll_hotkeys[] = {
++	Hotkey(WKC_UP, "scroll_up", SHK_SCROLL_UP),
++	Hotkey(WKC_DOWN, "scroll_down", SHK_SCROLL_DOWN),
++	Hotkey(WKC_LEFT, "scroll_left", SHK_SCROLL_LEFT),
++	Hotkey(WKC_RIGHT, "scroll_right", SHK_SCROLL_RIGHT),
++	HOTKEY_LIST_END
++};
++
++HotkeyList VideoDriver_SDL::hotkeys("scroll", scroll_hotkeys);
++
+ void VideoDriver_SDL::MainLoop()
+ {
+ 	uint32 cur_ticks = SDL_CALL SDL_GetTicks();
+@@ -731,19 +763,44 @@ void VideoDriver_SDL::MainLoop()
+ 			_ctrl_pressed  = !!(mod & KMOD_CTRL);
+ 			_shift_pressed = !!(mod & KMOD_SHIFT);
+ 
+-			/* determine which directional keys are down */
+-			_dirkeys =
+-#if SDL_VERSION_ATLEAST(1, 3, 0)
+-				(keys[SDL_SCANCODE_LEFT]  ? 1 : 0) |
+-				(keys[SDL_SCANCODE_UP]    ? 2 : 0) |
+-				(keys[SDL_SCANCODE_RIGHT] ? 4 : 0) |
+-				(keys[SDL_SCANCODE_DOWN]  ? 8 : 0);
+-#else
+-				(keys[SDLK_LEFT]  ? 1 : 0) |
+-				(keys[SDLK_UP]    ? 2 : 0) |
+-				(keys[SDLK_RIGHT] ? 4 : 0) |
+-				(keys[SDLK_DOWN]  ? 8 : 0);
+-#endif
++			const SmallVector<uint16, 1> *scroll_up_keycodes = VideoDriver_SDL::hotkeys.GetKeycodesByNum(SHK_SCROLL_UP);
++			const SmallVector<uint16, 1> *scroll_down_keycodes = VideoDriver_SDL::hotkeys.GetKeycodesByNum(SHK_SCROLL_DOWN);
++			const SmallVector<uint16, 1> *scroll_left_keycodes = VideoDriver_SDL::hotkeys.GetKeycodesByNum(SHK_SCROLL_LEFT);
++			const SmallVector<uint16, 1> *scroll_right_keycodes = VideoDriver_SDL::hotkeys.GetKeycodesByNum(SHK_SCROLL_RIGHT);
++			_dirkeys = 0;
++			if(scroll_left_keycodes != NULL){
++				for (uint i = 0; i < scroll_left_keycodes->Length(); i++){
++					if(keys[ConvertMyKeytoSdlKey(*scroll_left_keycodes->Get(i))]){
++						_dirkeys += 1;
++						break;
++					}
++				}
++			}
++			if(scroll_up_keycodes != NULL){
++				for (uint i = 0; i < scroll_up_keycodes->Length(); i++){
++					if(keys[ConvertMyKeytoSdlKey(*scroll_up_keycodes->Get(i))]){
++						_dirkeys += 2;
++						break;
++					}
++				}
++			}
++			if(scroll_right_keycodes != NULL){
++				for (uint i = 0; i < scroll_right_keycodes->Length(); i++){
++					if(keys[ConvertMyKeytoSdlKey(*scroll_right_keycodes->Get(i))]){
++						_dirkeys += 4;
++						break;
++					}
++				}
++			}
++			if(scroll_down_keycodes != NULL){
++				for (uint i = 0; i < scroll_down_keycodes->Length(); i++){
++					if(keys[ConvertMyKeytoSdlKey(*scroll_down_keycodes->Get(i))]){
++						_dirkeys += 8;
++						break;
++					}
++				}
++			}
++
+ 			if (old_ctrl_pressed != _ctrl_pressed) HandleCtrlChanged();
+ 
+ 			/* The gameloop is the part that can run asynchronously. The rest
+diff --git a/src/video/sdl_v.h b/src/video/sdl_v.h
+index 8855c3566..18e9e35dd 100644
+--- a/src/video/sdl_v.h
++++ b/src/video/sdl_v.h
+@@ -13,6 +13,7 @@
+ #define VIDEO_SDL_H
+ 
+ #include "video_driver.hpp"
++#include "../hotkeys.h"
+ 
+ /** The SDL video driver. */
+ class VideoDriver_SDL : public VideoDriver {
+@@ -38,6 +39,9 @@ public:
+ 	/* virtual */ bool ClaimMousePointer();
+ 
+ 	/* virtual */ const char *GetName() const { return "sdl"; }
++
++	static HotkeyList hotkeys;
++
+ private:
+ 	int PollEvent();
+ 	bool CreateMainSurface(uint w, uint h);
+diff --git a/src/video/win32_v.cpp b/src/video/win32_v.cpp
+index e536ae8e5..081034a8a 100644
+--- a/src/video/win32_v.cpp
++++ b/src/video/win32_v.cpp
+@@ -23,6 +23,8 @@
+ #include "../progress.h"
+ #include "../window_gui.h"
+ #include "../window_func.h"
++#include "../hotkeys.h"
++
+ #include "win32_v.h"
+ #include <windows.h>
+ #include <imm.h>
+@@ -160,7 +162,12 @@ static const VkMapping _vk_mapping[] = {
+ 	AS(0xDE,  WKC_SINGLEQUOTE),
+ 	AS(0xBC,  WKC_COMMA),
+ 	AS(0xBD,  WKC_MINUS),
+-	AS(0xBE,  WKC_PERIOD)
++	AS(0xBE,  WKC_PERIOD),
++
++	AS(VK_UP, WKC_UP),
++	AS(VK_DOWN, WKC_DOWN),
++	AS(VK_LEFT, WKC_LEFT),
++	AS(VK_RIGHT, WKC_RIGHT)
+ };
+ 
+ static uint MapWindowsKey(uint sym)
+@@ -181,6 +188,20 @@ static uint MapWindowsKey(uint sym)
+ 	return key;
+ }
+ 
++static byte MapMyKey(uint key)
++{
++	const VkMapping *map;
++	byte sym = 0;
++
++	for (map = _vk_mapping; map != endof(_vk_mapping); ++map) {
++		if ((uint)(key - map->map_to) <= map->vk_count) {
++			sym = key - map->map_to + map->vk_from;
++			break;
++		}
++	}
++	return sym;
++}
++
+ static bool AllocateDibSection(int w, int h, bool force = false);
+ 
+ static void ClientSizeChanged(int w, int h)
+@@ -1183,6 +1204,23 @@ static void CheckPaletteAnim()
+ 	InvalidateRect(_wnd.main_wnd, NULL, FALSE);
+ }
+ 
++enum {
++	SHK_SCROLL_UP,
++	SHK_SCROLL_DOWN,
++	SHK_SCROLL_LEFT,
++	SHK_SCROLL_RIGHT
++};
++
++static Hotkey scroll_hotkeys[] = {
++	Hotkey(WKC_UP, "scroll_up", SHK_SCROLL_UP),
++	Hotkey(WKC_DOWN, "scroll_down", SHK_SCROLL_DOWN),
++	Hotkey(WKC_LEFT, "scroll_left", SHK_SCROLL_LEFT),
++	Hotkey(WKC_RIGHT, "scroll_right", SHK_SCROLL_RIGHT),
++	HOTKEY_LIST_END
++};
++
++HotkeyList VideoDriver_Win32::hotkeys("scroll", scroll_hotkeys);
++
+ void VideoDriver_Win32::MainLoop()
+ {
+ 	MSG mesg;
+@@ -1254,13 +1292,46 @@ void VideoDriver_Win32::MainLoop()
+ 			_shift_pressed = _wnd.has_focus && GetAsyncKeyState(VK_SHIFT)<0;
+ 
+ 			/* determine which directional keys are down */
++			_dirkeys = 0;
+ 			if (_wnd.has_focus) {
+-				_dirkeys =
+-					(GetAsyncKeyState(VK_LEFT) < 0 ? 1 : 0) +
+-					(GetAsyncKeyState(VK_UP) < 0 ? 2 : 0) +
+-					(GetAsyncKeyState(VK_RIGHT) < 0 ? 4 : 0) +
+-					(GetAsyncKeyState(VK_DOWN) < 0 ? 8 : 0);
+-			} else {
++				const SmallVector<uint16, 1> *scroll_up_keycodes = VideoDriver_Win32::hotkeys.GetKeycodesByNum(SHK_SCROLL_UP);
++				const SmallVector<uint16, 1> *scroll_down_keycodes = VideoDriver_Win32::hotkeys.GetKeycodesByNum(SHK_SCROLL_DOWN);
++				const SmallVector<uint16, 1> *scroll_left_keycodes = VideoDriver_Win32::hotkeys.GetKeycodesByNum(SHK_SCROLL_LEFT);
++				const SmallVector<uint16, 1> *scroll_right_keycodes = VideoDriver_Win32::hotkeys.GetKeycodesByNum(SHK_SCROLL_RIGHT);
++				if(scroll_up_keycodes != NULL){
++					for (uint i = 0; i < scroll_left_keycodes->Length(); i++){
++						if(GetAsyncKeyState(MapMyKey(*scroll_left_keycodes->Get(i))) < 0){
++							_dirkeys += 1;
++							break;
++						}
++					}
++				}
++				if(scroll_down_keycodes != NULL){
++					for (uint i = 0; i < scroll_up_keycodes->Length(); i++){
++						if(GetAsyncKeyState(MapMyKey(*scroll_up_keycodes->Get(i))) < 0){
++							_dirkeys += 2;
++							break;
++						}
++					}
++				}
++				if(scroll_left_keycodes != NULL){
++					for (uint i = 0; i < scroll_right_keycodes->Length(); i++){
++						if(GetAsyncKeyState(MapMyKey(*scroll_right_keycodes->Get(i))) < 0){
++							_dirkeys += 4;
++							break;
++						}
++					}
++				}
++				if(scroll_right_keycodes != NULL){
++					for (uint i = 0; i < scroll_down_keycodes->Length(); i++){
++						if(GetAsyncKeyState(MapMyKey(*scroll_down_keycodes->Get(i))) < 0){
++							_dirkeys += 8;
++							break;
++						}
++					}
++				}
++			}
++			else {
+ 				_dirkeys = 0;
+ 			}
+ 
+diff --git a/src/video/win32_v.h b/src/video/win32_v.h
+index 7609d0422..108c54db7 100644
+--- a/src/video/win32_v.h
++++ b/src/video/win32_v.h
+@@ -42,6 +42,8 @@ public:
+ 	/* virtual */ const char *GetName() const { return "win32"; }
+ 
+ 	bool MakeWindow(bool full_screen);
++
++	static HotkeyList hotkeys;
+ };
+ 
+ /** The factory for Windows' video driver. */
